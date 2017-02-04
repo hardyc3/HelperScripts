@@ -1,62 +1,87 @@
 import sys
 import time
+import getpass
+import os
 from paramiko import SSHClient
+from paramiko.client import AutoAddPolicy
+from paramiko import SFTPClient
 from scp import SCPClient
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from watchdog.events import LoggingEventHandler
 
 class MyEventHandler(FileSystemEventHandler):
 
-    def __init__(self, local_dir, remote_dir):
+    def __init__(self, username, ip_address, local_dir, remote_dir):
+        '''
+            Initializes local variables and captures a password for the ssh key
+        '''
         self.local_dir = local_dir
         self.remote_dir = remote_dir
+        self.ip_address = ip_address
+        self.username = username
+        print("Enter your ssh key password (or enter if blank): ")
+        self.password = getpass.getpass()
+        print("Ready for monitoring")
 
     def dispatch(self, event):
-        print("dispatch: " + str(event))
-        self.sync_folders()
+        self.sync_folders(event)
 
     def on_any_event(self, event):
-        print("on_any_event: " + str(event))
-        self.sync_folders()
+        self.sync_folders(event)
 
     def on_created(self, event):
-        print("on_created: " + str(event))
-        self.sync_folders()
+        self.sync_folders(event)
 
     def on_deleted(self, event):
-        print("on_deleted: " + str(event))
-        self.sync_folders()
+        self.sync_folders(event)
 
     def on_modified(self, event):
-        print("on_modified: " + str(event))
-        self.sync_folders()
+        self.sync_folders(event)
 
     def on_moved(self, event):
-        print("on_moved: " + str(event))
-        self.sync_folders()
+        self.sync_folders(event)
     
-    def sync_folders(self):
-        print("syching " + self.local_dir + " with remote " + self.remote_dir)
+    def sync_folders(self, event):
+        '''
+            Connects to the remote server and uploads all the files in the 
+            local_dir to the remote_dir
+        '''
+        try:
+            print("detected change on: " + event.src_path)
+            print("syching " + self.local_dir + " with remote " + self.remote_dir)
+            ssh = SSHClient()
+            ssh.set_missing_host_key_policy(AutoAddPolicy())
+            ssh.load_system_host_keys()
+            if self.password == "":
+                self.password = None
+            ssh.connect(self.ip_address, username=self.username, password=self.password)
+            scp = SCPClient(ssh.get_transport())
 
+            scp.put(self.local_dir, self.remote_dir, recursive=True)
+            scp.close()
+
+        except Exception as e:
+            print("Something failed: " + str(e))
 
 if __name__ == "__main__":
     local_folder = sys.argv[1]
     remote_folder = sys.argv[2]
-    ip_address = sys.argv[3]
+    username = sys.argv[3]
+    ip_address = sys.argv[4]
     
     print("watching local folder: " + local_folder)
-    print("remote folder: " + remote_folder + " on ip: " + ip_address)
+    print("remote folder: " + remote_folder + " on ip: " + username + "@" + ip_address)
     #watch files in folder for changes
-    event_handler = MyEventHandler(local_folder, remote_folder)
+    event_handler = MyEventHandler(username, ip_address, local_folder, remote_folder)
     observer = Observer()
     observer.schedule(event_handler, local_folder, recursive=True)
     observer.start()
 
+    #Make sure we are available to capture a ctrl+c to close the program
     try: 
         while True:
             time.sleep(5)
     except KeyboardInterrupt:
         observer.stop()
+    #make sure everything shuts down before ending
     observer.join()
-    #when changes happen scp changed files to remote folder
