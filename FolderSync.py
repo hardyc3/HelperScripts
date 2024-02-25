@@ -54,10 +54,15 @@ class MyEventHandler(FileSystemEventHandler):
             ssh.load_system_host_keys()
             if self.password == "":
                 self.password = None
-            ssh.connect(self.ip_address, username=self.username, password=self.password)
-            scp = SCPClient(ssh.get_transport())
-
-            scp.put(self.local_dir, self.remote_dir, recursive=True)
+            ssh.connect(self.ip_address, username=self.username, password=self.password, timeout=2)
+            
+            pathArray = event.src_path.split('\\')
+            fileName = pathArray[len(pathArray)-1]
+            print("file: " + fileName)
+            print("remote: " + self.remote_dir)
+           
+            scp = ssh.open_sftp()
+            scp.put(event.src_path, self.remote_dir+"/"+fileName)
             scp.close()
 
         except Exception as e:
